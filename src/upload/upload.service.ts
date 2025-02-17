@@ -3,8 +3,6 @@ import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { S3 } from 'aws-sdk';
 import { v4 as uuidv4 } from 'uuid';
-import { InjectQueue } from '@nestjs/bull';
-import { Queue } from 'bull';
 import * as amqp from 'amqplib';
 
 
