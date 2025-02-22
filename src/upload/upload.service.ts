@@ -1,27 +1,25 @@
 // src/upload/upload.service.ts (api-service)
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { S3 } from 'aws-sdk';
 import { v4 as uuidv4 } from 'uuid';
 import * as amqp from 'amqplib';
-
-
+import { Multer } from 'multer';
+import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
 @Injectable()
 export class UploadService {
-  private readonly s3: S3;
+  private readonly s3Client: S3Client;
 
-  constructor(
-        private readonly configService: ConfigService,
-        // @InjectQueue('file_processing_queue') private fileProcessingQueue: Queue //Sử dụng Bull,
-        ) {
-    this.s3 = new S3({
-      accessKeyId: this.configService.get('aws.accessKeyId'),
-      secretAccessKey: this.configService.get('aws.secretAccessKey'),
+  constructor(private readonly configService: ConfigService) {
+    this.s3Client = new S3Client({
       region: this.configService.get('aws.region'),
+      credentials: {
+        accessKeyId: this.configService.get('aws.accessKeyId'),
+        secretAccessKey: this.configService.get('aws.secretAccessKey'),
+      },
     });
   }
 
-  async uploadFile(file: Express.Multer.File): Promise<{ fileId: string }> {
+  async uploadFile(file: Multer.File): Promise<{ fileId: string }> {
     const fileId = uuidv4();
     const key = `uploads/${fileId}/${file.originalname}`;
 
@@ -33,10 +31,10 @@ export class UploadService {
     };
 
     try {
-      await this.s3.upload(params).promise();
+      const command = new PutObjectCommand(params);
+      await this.s3Client.send(command);
       // Gửi message vào RabbitMQ
       await this.sendToRabbitMQ(fileId, key);
-
 
       return { fileId };
     } catch (error) {
@@ -45,9 +43,7 @@ export class UploadService {
     }
   }
 
-
   private async sendToRabbitMQ(fileId: string, s3Key: string) {
-
     const connection = await amqp.connect(this.configService.get('rabbitmq.url'));
     const channel = await connection.createChannel();
     const queue = this.configService.get('rabbitmq.fileProcessingQueue');
