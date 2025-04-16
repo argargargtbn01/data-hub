@@ -5,6 +5,10 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { UploadModule } from './upload/upload.module';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
+import { RetrievalModule } from './retrieval/retrieval.module';
+import { VectorStoreModule } from './vector-store/vector-store.module';
+import { EmbeddingModule } from './embedding/embedding.module';
+import { RagModule } from './rag/rag.module';
 
 @Module({
   imports: [
@@ -27,6 +31,10 @@ import { AppService } from './app.service';
       inject: [ConfigService],
     }),
     UploadModule,
+    RetrievalModule,
+    VectorStoreModule,
+    EmbeddingModule,
+    RagModule,
   ],
   controllers: [AppController],
   providers: [AppService],
