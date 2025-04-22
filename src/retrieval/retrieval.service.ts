@@ -16,7 +16,7 @@ export class RetrievalService {
   ) {
     this.huggingfaceUrl = 'https://api-inference.huggingface.co/pipeline/feature-extraction';
     this.huggingfaceToken = this.configService.get<string>('HUGGING_FACE_TOKEN');
-    this.embeddingModel = this.configService.get<string>('EMBEDDING_MODEL') || 'sentence-transformers/all-MiniLM-L6-v2';
+    this.embeddingModel = 'sentence-transformers/all-MiniLM-L6-v2';
   }
 
   async retrieveRelevantDocuments(
