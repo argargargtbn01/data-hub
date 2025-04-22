@@ -64,7 +64,7 @@ export class VectorStoreService {
     similarityThreshold: number = 0.7,
   ): Promise<
     Array<{
-      id: string; // Thay đổi kiểu từ number sang string để khớp với định nghĩa entity
+      id: string;
       text: string;
       similarity: number;
       metadata?: Record<string, any>;
@@ -72,6 +72,18 @@ export class VectorStoreService {
   > {
     try {
       this.logger.log(`Tìm kiếm ${limit} chunks tương tự nhất cho botId=${botId}`);
+
+      // Kiểm tra embedding hợp lệ
+      if (!embedding || !Array.isArray(embedding) || embedding.length === 0) {
+        this.logger.error('Embedding không hợp lệ: vector must have at least 1 dimension');
+        throw new Error('vector must have at least 1 dimension');
+      }
+
+      // Đảm bảo embedding là mảng số, không phải mảng chuỗi
+      const embeddingArray = embedding.map((num) => Number(num));
+
+      // Format vector đúng cách cho pgvector
+      const formattedEmbedding = `[${embeddingArray.join(',')}]`;
 
       // Sử dụng pgvector để tìm kiếm tương tự
       // Cosine distance = 1 - cosine similarity
@@ -81,23 +93,35 @@ export class VectorStoreService {
           'chunk.id',
           'chunk.text',
           'chunk.metadata',
-          `1 - (chunk.embedding::vector <=> :embedding) AS similarity`,
+          `1 - (chunk.embedding::vector <=> :embedding::vector) AS similarity`,
         ])
         .where('chunk.botId = :botId', { botId })
-        .andWhere('1 - (chunk.embedding::vector <=> :embedding) > :threshold', {
-          embedding, // đây là mảng float (double precision[])
+        .andWhere('1 - (chunk.embedding::vector <=> :embedding::vector) > :threshold', {
+          embedding: formattedEmbedding, // Sử dụng chuỗi vector đã được format đúng cách
           threshold: similarityThreshold,
         })
         .orderBy('similarity', 'DESC')
         .limit(limit)
         .getRawMany();
 
-      return results.map((result) => ({
+      const mappedResults = results.map((result) => ({
         id: result.chunk_id,
         text: result.chunk_text,
         metadata: result.chunk_metadata,
         similarity: parseFloat(result.similarity),
       }));
+
+      // Log chi tiết các chunks được tìm thấy
+      this.logger.log(`Đã tìm thấy ${mappedResults.length} chunks tương tự cho botId=${botId}`);
+      mappedResults.forEach((chunk, index) => {
+        this.logger.log(
+          `[Chunk ${index + 1}] ID: ${chunk.id}, Similarity: ${(chunk.similarity * 100).toFixed(
+            2,
+          )}%, Text: "${chunk.text.substring(0, 100)}${chunk.text.length > 100 ? '...' : ''}"`,
+        );
+      });
+
+      return mappedResults;
     } catch (error) {
       this.logger.error(`Lỗi khi tìm kiếm chunks tương tự: ${error.message}`);
 
@@ -107,6 +131,11 @@ export class VectorStoreService {
 
         // Sử dụng fallback với JavaScript implementation khi pgvector không hoạt động
         this.logger.warn('Đang sử dụng fallback với JavaScript implementation');
+
+        // Kiểm tra lại embedding trước khi tiếp tục với fallback
+        if (!embedding || !Array.isArray(embedding) || embedding.length === 0) {
+          throw new Error('vector must have at least 1 dimension');
+        }
 
         // Lấy tất cả chunks và tính toán similarity trong ứng dụng
         const chunks = await this.vectorChunkRepository.find({
@@ -180,6 +209,14 @@ export class VectorStoreService {
     try {
       this.logger.log(`Performing similarity search for botId: ${botId}, k: ${k}`);
 
+      // Kiểm tra embedding hợp lệ
+      if (!queryEmbedding || !Array.isArray(queryEmbedding) || queryEmbedding.length === 0) {
+        this.logger.error(
+          'Embedding không hợp lệ trong similaritySearch: vector must have at least 1 dimension',
+        );
+        throw new Error('vector must have at least 1 dimension');
+      }
+
       // PostgreSQL with pgvector extension query (example)
       // Thực tế sẽ cần cài đặt pgvector extension và sử dụng các hàm vector_cosine_distance
       // Trong ví dụ này, tôi sẽ sử dụng native TypeORM features để mô phỏng
@@ -224,6 +261,14 @@ export class VectorStoreService {
   ): Promise<VectorSearchResult[]> {
     try {
       this.logger.log(`Performing search for botId: ${botId}, query: ${query}, k: ${k}`);
+
+      // Kiểm tra embedding hợp lệ
+      if (!queryEmbedding || !Array.isArray(queryEmbedding) || queryEmbedding.length === 0) {
+        this.logger.error(
+          'Embedding không hợp lệ trong search: vector must have at least 1 dimension',
+        );
+        throw new Error('vector must have at least 1 dimension');
+      }
 
       // Hybrid search kết hợp vector search với keyword search
       // Tương tự như sử dụng combined score giữa vector similarity và keyword matching

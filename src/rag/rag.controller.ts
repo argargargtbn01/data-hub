@@ -8,16 +8,18 @@ export class RagController {
   constructor(private readonly ragService: RagService) {}
 
   @Post('/query')
-  async queryRag(@Body() queryDto: { 
-    botId: number;
-    query: string;
-    maxResults?: number;
-  }) {
+  async queryRag(@Body() queryDto: { botId: number; query: string; maxResults?: number }) {
     this.logger.log(`Nhận yêu cầu RAG query: "${queryDto.query}" cho botId: ${queryDto.botId}`);
-    return this.ragService.generateAnswer(
-      queryDto.query, 
+    return this.ragService.generateAnswer(queryDto.query, queryDto.botId, queryDto.maxResults || 5);
+  }
+
+  @Post('/retrieve-documents')
+  async retrieveDocuments(@Body() queryDto: { botId: number; query: string; maxResults?: number }) {
+    this.logger.log(`Nhận yêu cầu retrieval: "${queryDto.query}" cho botId: ${queryDto.botId}`);
+    return this.ragService.retrieveRelevantDocuments(
+      queryDto.query,
       queryDto.botId,
-      queryDto.maxResults || 5
+      queryDto.maxResults || 5,
     );
   }
 }
