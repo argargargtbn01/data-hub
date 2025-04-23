@@ -7,15 +7,31 @@ pipeline {
         KUBE_CONFIG_ID = 'kubeconfig-credentials'
         DEPLOYMENT_NAME = 'data-hub-kltn-service'
         DEPLOYMENT_NAMESPACE = 'argocd'
-        // Thêm biến môi trường từ Jenkins
+        
+        // Biến môi trường Database từ Jenkins credentials
         DATABASE_HOST = credentials('DATABASE_HOST')
         DATABASE_PORT = credentials('DATABASE_PORT')
-        DATABASE_USERNAME = credentials('DATABASE_USERNAME')
+        DATABASE_USER = credentials('DATABASE_USER')
         DATABASE_PASSWORD = credentials('DATABASE_PASSWORD')
         DATABASE_NAME = credentials('DATABASE_NAME')
+        
+        // Vector Database
+        PGVECTOR_ENABLED = credentials('PGVECTOR_ENABLED')
+        
+        // RabbitMQ Configuration
+        RABBITMQ_URL = credentials('RABBITMQ_URL')
+        FILE_PROCESSING_QUEUE = credentials('FILE_PROCESSING_QUEUE')
+        
+        // AWS Configuration
+        AWS_ACCESS_KEY_ID = credentials('AWS_ACCESS_KEY_ID')
+        AWS_SECRET_ACCESS_KEY = credentials('AWS_SECRET_ACCESS_KEY')
+        AWS_REGION = credentials('AWS_REGION')
+        S3_BUCKET_NAME = credentials('S3_BUCKET_NAME')
+        
+        // Model Configuration
+        EMBEDDING_MODEL = credentials('EMBEDDING_MODEL')
+        NODE_TLS_REJECT_UNAUTHORIZED = credentials('NODE_TLS_REJECT_UNAUTHORIZED')
         HUGGING_FACE_TOKEN = credentials('HUGGING_FACE_TOKEN')
-        LLM_API_ENDPOINT = credentials('LLM_API_ENDPOINT')
-        LLM_API_KEY = credentials('LLM_API_KEY')
     }
 
     stages {
@@ -31,23 +47,11 @@ pipeline {
             }
         }
 
-        // stage('Lint Check') {
-        //     steps {
-        //         sh 'npm run lint'
-        //     }
-        // }
-
         stage('Build Application') {
             steps {
                 sh 'npm run build'
             }
         }
-
-        // stage('Test Application') {
-        //     steps {
-        //         sh 'npm test'
-        //     }
-        // }
 
         stage('Build Docker Image') {
             steps {
@@ -57,16 +61,27 @@ pipeline {
 # Database Configuration
 DATABASE_HOST=${DATABASE_HOST}
 DATABASE_PORT=${DATABASE_PORT}
-DATABASE_USERNAME=${DATABASE_USERNAME}
+DATABASE_USER=${DATABASE_USER}
 DATABASE_PASSWORD=${DATABASE_PASSWORD}
 DATABASE_NAME=${DATABASE_NAME}
 
-# HuggingFace Configuration
-HUGGING_FACE_TOKEN=${HUGGING_FACE_TOKEN}
+# Vector Database
+PGVECTOR_ENABLED=${PGVECTOR_ENABLED}
 
-# LLM API Configuration
-LLM_API_ENDPOINT=${LLM_API_ENDPOINT}
-LLM_API_KEY=${LLM_API_KEY}
+# RabbitMQ Configuration
+RABBITMQ_URL=${RABBITMQ_URL}
+FILE_PROCESSING_QUEUE=${FILE_PROCESSING_QUEUE}
+
+# AWS Configuration
+AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+AWS_REGION=${AWS_REGION}
+S3_BUCKET_NAME=${S3_BUCKET_NAME}
+
+# Model Configuration
+EMBEDDING_MODEL=${EMBEDDING_MODEL}
+NODE_TLS_REJECT_UNAUTHORIZED=${NODE_TLS_REJECT_UNAUTHORIZED}
+HUGGING_FACE_TOKEN=${HUGGING_FACE_TOKEN}
 EOL
                 '''
                 
@@ -83,36 +98,6 @@ EOL
                 }
             }
         }
-
-        // stage('Deploy to Kubernetes') {
-        //     steps {
-        //         withCredentials([file(credentialsId: "${KUBE_CONFIG_ID}", variable: 'KUBECONFIG')]) {
-        //             sh '''
-        //                 # Tạo ConfigMap từ biến môi trường
-        //                 cat > data-hub-env-configmap.yaml << EOL
-        //                 apiVersion: v1
-        //                 kind: ConfigMap
-        //                 metadata:
-        //                   name: data-hub-env
-        //                   namespace: ${DEPLOYMENT_NAMESPACE}
-        //                 data:
-        //                   DATABASE_HOST: "${DATABASE_HOST}"
-        //                   DATABASE_PORT: "${DATABASE_PORT}"
-        //                   DATABASE_USERNAME: "${DATABASE_USERNAME}"
-        //                   DATABASE_PASSWORD: "${DATABASE_PASSWORD}"
-        //                   DATABASE_NAME: "${DATABASE_NAME}"
-        //                   HUGGING_FACE_TOKEN: "${HUGGING_FACE_TOKEN}"
-        //                   LLM_API_ENDPOINT: "${LLM_API_ENDPOINT}"
-        //                   LLM_API_KEY: "${LLM_API_KEY}"
-        //                 EOL
-
-        //                 kubectl --kubeconfig=$KUBECONFIG apply -f data-hub-env-configmap.yaml
-        //                 kubectl --kubeconfig=$KUBECONFIG set image deployment/${DEPLOYMENT_NAME} ${DEPLOYMENT_NAME}=quang1709/data-hub:latest -n ${DEPLOYMENT_NAMESPACE}
-        //                 kubectl --kubeconfig=$KUBECONFIG rollout status deployment/${DEPLOYMENT_NAME} -n ${DEPLOYMENT_NAMESPACE}
-        //             '''
-        //         }
-        //     }
-        // }
     }
 
     post {
@@ -124,8 +109,8 @@ EOL
         }
         always {
             // Clean up to save disk space
-            sh 'docker system prune -f'
-            sh 'rm -f .env' // Xóa file .env sau khi build
+            sh 'if [ -f ".env" ]; then rm -f .env; fi'
+            sh 'docker system prune -f || true'
         }
     }
 }
