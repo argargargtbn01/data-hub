@@ -11,7 +11,7 @@ pipeline {
         // Biến môi trường Database từ Jenkins credentials
         DATABASE_HOST = credentials('DATABASE_HOST')
         DATABASE_PORT = credentials('DATABASE_PORT')
-        DATABASE_USER = credentials('DATABASE_USER')
+        DATABASE_USERNAME = credentials('DATABASE_USERNAME')
         DATABASE_PASSWORD = credentials('DATABASE_PASSWORD')
         DATABASE_NAME = credentials('DATABASE_NAME')
         
@@ -61,7 +61,7 @@ pipeline {
 # Database Configuration
 DATABASE_HOST=${DATABASE_HOST}
 DATABASE_PORT=${DATABASE_PORT}
-DATABASE_USER=${DATABASE_USER}
+DATABASE_USERNAME=${DATABASE_USERNAME}
 DATABASE_PASSWORD=${DATABASE_PASSWORD}
 DATABASE_NAME=${DATABASE_NAME}
 
