@@ -1,33 +1,41 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import axios from 'axios';
+import axios, { AxiosRequestConfig, AxiosResponse } from 'axios';
+import * as https from 'https';
 
 @Injectable()
 export class EmbeddingService {
   private readonly logger = new Logger(EmbeddingService.name);
-  private readonly huggingfaceEndpoint: string;
-  private readonly huggingfaceToken: string;
-  private readonly modelName: string;
+  private readonly googleApiEndpoint: string;
+  private readonly googleApiKey: string;
+  private readonly retryMax: number;
+  private readonly retryDelayMs: number;
 
   constructor(private readonly configService: ConfigService) {
-    this.huggingfaceEndpoint = 'https://api-inference.huggingface.co/pipeline/feature-extraction';
-    this.huggingfaceToken = this.configService.get<string>('HUGGING_FACE_TOKEN') || '';
-    this.modelName =
-      this.configService.get<string>('EMBEDDING_MODEL') || 'sentence-transformers/all-MiniLM-L6-v2';
+    this.googleApiEndpoint =
+      'https://generativelanguage.googleapis.com/v1beta/models/embedding-001:embedContent';
+    this.googleApiKey =
+      this.configService.get<string>('GOOGLE_API_KEY');
+    this.retryMax = 3;
+    this.retryDelayMs = 1000;
+    this.logger.log(`Initialized EmbeddingService with Google API`);
   }
 
   /**
-   * Tạo embedding vector cho một đoạn văn bản
+   * Tạo embedding vector cho một đoạn văn bản với cơ chế thử lại
    */
   async createEmbedding(text: string): Promise<number[]> {
     this.logger.debug(`Tạo embedding cho văn bản: "${text.substring(0, 50)}..."`);
 
-    try {
-      return this.createEmbeddingWithHuggingFace(text);
-    } catch (error) {
-      this.logger.error(`Lỗi khi tạo embedding: ${error.message}`);
-      throw error;
+    // Validate input text
+    if (!text || text.trim() === '') {
+      this.logger.error('Văn bản rỗng không thể tạo embedding');
+      throw new Error('Văn bản không được để trống');
     }
+
+    return this.withRetry(async () => {
+      return this.createEmbeddingWithGoogleAPI(text);
+    });
   }
 
   /**
@@ -41,10 +49,25 @@ export class EmbeddingService {
     try {
       const results = [];
 
-      // Xử lý từng văn bản một
+      // Xử lý từng văn bản một, với retries
       for (const text of texts) {
-        const embedding = await this.createEmbedding(text);
-        results.push({ text, embedding });
+        try {
+          const embedding = await this.createEmbedding(text);
+
+          // Kiểm tra embedding hợp lệ
+          if (!embedding || !Array.isArray(embedding) || embedding.length === 0) {
+            throw new Error('Embedding không hợp lệ: mảng rỗng hoặc không đúng định dạng');
+          }
+
+          results.push({ text, embedding });
+        } catch (error) {
+          this.logger.error(`Lỗi với văn bản cụ thể: ${error.message}`);
+          // Không thêm kết quả lỗi để tránh embedding rỗng
+        }
+      }
+
+      if (results.length === 0) {
+        throw new Error('Không tạo được embedding cho bất kỳ văn bản nào trong batch');
       }
 
       return results;
@@ -55,36 +78,130 @@ export class EmbeddingService {
   }
 
   /**
-   * Tạo embedding sử dụng Hugging Face API
+   * Tạo embedding sử dụng Google Generative Language API
    */
-  private async createEmbeddingWithHuggingFace(text: string): Promise<number[]> {
+  private async createEmbeddingWithGoogleAPI(text: string): Promise<number[]> {
     try {
-      const response = await axios.post(
-        `${this.huggingfaceEndpoint}/${this.modelName}`,
-        { inputs: text },
-        {
-          headers: {
-            Authorization: `Bearer ${this.huggingfaceToken}`,
-            'Content-Type': 'application/json',
-          },
+      this.logger.debug(`Gọi Google API để tạo embedding cho text: "${text.substring(0, 30)}..."`);
+
+      // Xây dựng payload đúng định dạng cho Google API
+      const payload = {
+        content: {
+          parts: [{ text }],
         },
+      };
+
+      // Sử dụng agent tùy chỉnh để tránh lỗi SSL và tăng timeout
+      const httpsAgent = new https.Agent({
+        rejectUnauthorized: false,
+        keepAlive: true,
+        timeout: 30000,
+      });
+
+      const config: AxiosRequestConfig = {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        httpsAgent,
+        timeout: 30000, // Timeout 30 giây
+      };
+
+      const response = await axios.post(
+        `${this.googleApiEndpoint}?key=${this.googleApiKey}`,
+        payload,
+        config,
       );
 
-      // Kiểm tra định dạng response
-      if (Array.isArray(response.data) && response.data.length > 0) {
-        if (Array.isArray(response.data[0])) {
-          // Trường hợp output là mảng 2D [[...]]
-          return response.data[0];
-        } else {
-          // Trường hợp output là mảng 1D [...]
-          return response.data;
-        }
-      } else {
-        throw new Error('Invalid response format from Hugging Face API');
-      }
+      // Kiểm tra phản hồi
+      this.validateEmbeddingResponse(response);
+
+      // Trích xuất và chuyển đổi embedding
+      const embeddings = response.data.embedding.values.map((val) => Number(val));
+
+      this.logger.debug(`Đã tạo embedding thành công với ${embeddings.length} chiều`);
+      return embeddings;
     } catch (error) {
-      this.logger.error(`Lỗi khi tạo embedding với Hugging Face API: ${error.message}`);
+      if (error.response) {
+        this.logger.error(
+          `Google API trả về lỗi HTTP ${error.response.status}: ${JSON.stringify(
+            error.response.data,
+          )}`,
+        );
+      } else if (error.request) {
+        this.logger.error(`Không nhận được phản hồi từ Google API: ${error.message}`);
+      } else {
+        this.logger.error(`Lỗi khi thiết lập request: ${error.message}`);
+      }
       throw error;
     }
+  }
+
+  /**
+   * Validate response từ Google API
+   */
+  private validateEmbeddingResponse(response: AxiosResponse): void {
+    // Kiểm tra status code
+    if (response.status !== 200) {
+      throw new Error(`Google API trả về status code không thành công: ${response.status}`);
+    }
+
+    // Kiểm tra cấu trúc dữ liệu
+    if (!response.data) {
+      throw new Error('Phản hồi không có dữ liệu');
+    }
+
+    if (!response.data.embedding) {
+      throw new Error(`Phản hồi thiếu trường 'embedding': ${JSON.stringify(response.data)}`);
+    }
+
+    if (!response.data.embedding.values) {
+      throw new Error(
+        `Phản hồi thiếu trường 'embedding.values': ${JSON.stringify(response.data.embedding)}`,
+      );
+    }
+
+    const values = response.data.embedding.values;
+    if (!Array.isArray(values) || values.length === 0) {
+      throw new Error(`'embedding.values' không phải là mảng hợp lệ: ${JSON.stringify(values)}`);
+    }
+
+    // Kiểm tra tất cả các giá trị là số
+    const hasInvalidValue = values.some((val) => typeof val !== 'number' && isNaN(Number(val)));
+    if (hasInvalidValue) {
+      throw new Error('Mảng embedding chứa các giá trị không phải là số');
+    }
+  }
+
+  /**
+   * Hàm helper để thực hiện với cơ chế retry
+   */
+  private async withRetry<T>(fn: () => Promise<T>): Promise<T> {
+    let lastError: Error;
+
+    for (let attempt = 1; attempt <= this.retryMax; attempt++) {
+      try {
+        const result = await fn();
+
+        // Kiểm tra nếu result là mảng embedding
+        if (Array.isArray(result)) {
+          if (result.length === 0) {
+            throw new Error('Kết quả là mảng rỗng');
+          }
+        }
+
+        return result;
+      } catch (error) {
+        lastError = error;
+        this.logger.warn(`Attempt ${attempt}/${this.retryMax} failed: ${error.message}`);
+
+        if (attempt < this.retryMax) {
+          const delay = this.retryDelayMs * Math.pow(2, attempt - 1); // Exponential backoff
+          this.logger.debug(`Waiting ${delay}ms before retry ${attempt + 1}`);
+          await new Promise((resolve) => setTimeout(resolve, delay));
+        }
+      }
+    }
+
+    throw lastError || new Error(`Thất bại sau ${this.retryMax} lần thử`);
   }
 }

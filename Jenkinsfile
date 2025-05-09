@@ -29,10 +29,8 @@ pipeline {
         S3_BUCKET_NAME = credentials('S3_BUCKET_NAME')
         
         // Model Configuration
-        EMBEDDING_MODEL = credentials('EMBEDDING_MODEL')
         NODE_TLS_REJECT_UNAUTHORIZED = credentials('NODE_TLS_REJECT_UNAUTHORIZED')
-        HUGGING_FACE_TOKEN = credentials('HUGGING_FACE_TOKEN')
-    }
+        GOOGLE_API_KEY = credentials('GOOGLE_API_KEY')}
 
     stages {
         stage('Checkout Code') {
@@ -79,9 +77,8 @@ AWS_REGION=${AWS_REGION}
 S3_BUCKET_NAME=${S3_BUCKET_NAME}
 
 # Model Configuration
-EMBEDDING_MODEL=${EMBEDDING_MODEL}
 NODE_TLS_REJECT_UNAUTHORIZED=${NODE_TLS_REJECT_UNAUTHORIZED}
-HUGGING_FACE_TOKEN=${HUGGING_FACE_TOKEN}
+GOOGLE_API_KEY=${GOOGLE_API_KEY}
 EOL
                 '''
                 

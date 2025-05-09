@@ -35,12 +35,41 @@ export class VectorStoreService {
     try {
       const { botId, documentId, text, embedding, metadata } = params;
 
+      // Kiểm tra embedding hợp lệ
+      if (!embedding) {
+        this.logger.error('Embedding null hoặc undefined');
+        throw new Error('Embedding không được để trống');
+      }
+      
+      if (!Array.isArray(embedding)) {
+        this.logger.error(`Embedding không phải là mảng: ${typeof embedding}`);
+        throw new Error('Embedding phải là mảng số');
+      }
+      
+      if (embedding.length === 0) {
+        this.logger.error('Embedding là mảng rỗng');
+        throw new Error('Embedding không hợp lệ: vector must have at least 1 dimension');
+      }
+      
+      // Đảm bảo embedding là mảng số, không phải mảng chuỗi
+      const embeddingArray = embedding.map(num => {
+        const val = Number(num);
+        if (isNaN(val)) {
+          this.logger.warn(`Phát hiện giá trị không phải số trong embedding: ${num}, chuyển thành 0`);
+          return 0;
+        }
+        return val;
+      });
+      
+      // Log thông tin để debug
+      this.logger.debug(`Lưu chunk với ${embeddingArray.length} chiều cho document ${documentId}`);
+
       // Tạo entity mới
       const vectorChunk = new VectorChunk();
       vectorChunk.botId = botId;
       vectorChunk.documentId = documentId;
       vectorChunk.text = text;
-      vectorChunk.embedding = embedding;
+      vectorChunk.embedding = embeddingArray;
       vectorChunk.metadata = metadata || {};
 
       // Lưu vào database
@@ -277,6 +306,33 @@ export class VectorStoreService {
       return this.similaritySearch(botId, queryEmbedding, k);
     } catch (error) {
       this.logger.error(`Error performing search: ${error.message}`);
+      throw error;
+    }
+  }
+
+  /**
+   * Đếm số lượng chunks thuộc về một document và botId cụ thể
+   */
+  async countChunksByDocumentId(documentId: string, botId: number): Promise<number> {
+    try {
+      this.logger.log(`Đếm số chunks cho document ${documentId} và botId ${botId}`);
+
+      // Tạo query với cả documentId và botId
+      const queryOptions: any = { documentId };
+
+      // Chỉ thêm botId vào điều kiện nếu có
+      if (botId) {
+        queryOptions.botId = botId;
+      }
+
+      const count = await this.vectorChunkRepository.count({
+        where: queryOptions,
+      });
+
+      this.logger.log(`Tìm thấy ${count} chunks cho document ${documentId}`);
+      return count;
+    } catch (error) {
+      this.logger.error(`Lỗi khi đếm chunks theo documentId và botId: ${error.message}`);
       throw error;
     }
   }

@@ -1,4 +1,4 @@
-import { Body, Controller, Post, Delete, Param, Logger } from '@nestjs/common';
+import { Body, Controller, Post, Delete, Param, Logger, Get, Query } from '@nestjs/common';
 import { VectorStoreService, VectorSearchResult } from './vector-store.service';
 import { EmbeddingService } from '../embedding/embedding.service';
 import { VectorChunk } from '../entities/vector-chunk.entity';
@@ -31,14 +31,17 @@ export class VectorStoreController {
   ) {}
 
   @Post('/chunk')
-  async saveChunk(@Body() chunkData: {
-    documentId: string;
-    botId: number;
-    filename: string;
-    text: string;
-    embedding: number[];
-    metadata?: Record<string, any>;
-  }) {
+  async saveChunk(
+    @Body()
+    chunkData: {
+      documentId: string;
+      botId: number;
+      filename: string;
+      text: string;
+      embedding: number[];
+      metadata?: Record<string, any>;
+    },
+  ) {
     this.logger.log(`Nhận request lưu chunk cho document: ${chunkData.documentId}`);
 
     // Lưu chunk với embedding đã tạo sẵn
@@ -55,13 +58,16 @@ export class VectorStoreController {
   }
 
   @Post('/chunk/generate')
-  async generateAndSaveChunk(@Body() data: {
-    documentId: string;
-    botId: number;
-    filename: string;
-    text: string;
-    metadata?: Record<string, any>;
-  }) {
+  async generateAndSaveChunk(
+    @Body()
+    data: {
+      documentId: string;
+      botId: number;
+      filename: string;
+      text: string;
+      metadata?: Record<string, any>;
+    },
+  ) {
     this.logger.log(`Nhận request tạo embedding và lưu chunk cho document: ${data.documentId}`);
 
     // Tạo embedding cho text
@@ -90,9 +96,9 @@ export class VectorStoreController {
   @Post('/chunks')
   async saveBatchChunks(@Body() chunksDto: SaveChunkDto[]): Promise<VectorChunk[]> {
     // Ensure metadata is provided for all chunks
-    const chunksWithMetadata = chunksDto.map(chunk => ({
+    const chunksWithMetadata = chunksDto.map((chunk) => ({
       ...chunk,
-      metadata: chunk.metadata || null
+      metadata: chunk.metadata || null,
     }));
     return this.vectorStoreService.saveBatchChunks(chunksWithMetadata);
   }
@@ -109,5 +115,15 @@ export class VectorStoreController {
   ): Promise<VectorSearchResult[]> {
     const { botId, queryEmbedding, k = 5 } = searchDto;
     return this.vectorStoreService.similaritySearch(botId, queryEmbedding, k);
+  }
+
+  @Get('/document/:documentId/chunks-count')
+  async getDocumentChunksCount(
+    @Param('documentId') documentId: string,
+    @Query('botId') botId: number,
+  ) {
+    this.logger.log(`Nhận request đếm số chunks của document: ${documentId}, botId: ${botId}`);
+    const count = await this.vectorStoreService.countChunksByDocumentId(documentId, botId);
+    return { count, documentId, botId };
   }
 }

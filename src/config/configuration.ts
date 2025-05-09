@@ -16,5 +16,4 @@ export default () => ({
     region: process.env.AWS_REGION,
     s3BucketName: process.env.S3_BUCKET_NAME,
   },
-  embeddingModel: process.env.EMBEDDING_MODEL || 'sentence-transformers/all-MiniLM-L6-v2',
 });

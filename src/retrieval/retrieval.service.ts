@@ -6,17 +6,17 @@ import { ConfigService } from '@nestjs/config';
 @Injectable()
 export class RetrievalService {
   private readonly logger = new Logger(RetrievalService.name);
-  private readonly huggingfaceUrl: string;
-  private readonly huggingfaceToken: string;
-  private readonly embeddingModel: string;
+  private readonly googleApiEndpoint: string;
+  private readonly googleApiKey: string;
 
   constructor(
     private vectorStoreService: VectorStoreService,
     private configService: ConfigService,
   ) {
-    this.huggingfaceUrl = 'https://api-inference.huggingface.co/pipeline/feature-extraction';
-    this.huggingfaceToken = this.configService.get<string>('HUGGING_FACE_TOKEN');
-    this.embeddingModel = 'sentence-transformers/all-MiniLM-L6-v2';
+    this.googleApiEndpoint =
+      'https://generativelanguage.googleapis.com/v1beta/models/embedding-001:embedContent';
+    this.googleApiKey =
+      this.configService.get<string>('GOOGLE_API_KEY') || '';
   }
 
   async retrieveRelevantDocuments(
@@ -26,10 +26,10 @@ export class RetrievalService {
   ): Promise<VectorSearchResult[]> {
     try {
       this.logger.log(`Retrieving relevant documents for botId: ${botId}, query: ${query}`);
-      
+
       // Tạo embedding cho query
       const queryEmbedding = await this.createEmbedding(query);
-      
+
       // Tìm kiếm các tài liệu có liên quan
       return this.vectorStoreService.search(botId, query, queryEmbedding, k);
     } catch (error) {
@@ -38,26 +38,22 @@ export class RetrievalService {
     }
   }
 
-  async prepareContext(
-    botId: number,
-    query: string,
-    k: number = 5,
-  ): Promise<string> {
+  async prepareContext(botId: number, query: string, k: number = 5): Promise<string> {
     try {
       // Lấy các tài liệu liên quan dựa trên câu hỏi
       const relevantDocuments = await this.retrieveRelevantDocuments(botId, query, k);
-      
+
       if (!relevantDocuments || relevantDocuments.length === 0) {
         this.logger.warn(`No relevant documents found for botId: ${botId}, query: ${query}`);
         return '';
       }
-      
+
       // Xây dựng ngữ cảnh từ các tài liệu tìm được
       // Thêm metadata để giúp LLM hiểu nguồn thông tin
       const contextParts = relevantDocuments.map((doc, index) => {
         return `[Document ${index + 1} from ${doc.filename}]: ${doc.text}`;
       });
-      
+
       // Ghép tất cả các phần ngữ cảnh lại với nhau
       return contextParts.join('\n\n');
     } catch (error) {
@@ -68,23 +64,56 @@ export class RetrievalService {
 
   private async createEmbedding(text: string): Promise<number[]> {
     try {
-      this.logger.log(`Creating embedding for text of length ${text.length} using model ${this.embeddingModel}`);
-      
+      this.logger.log(`Tạo embedding cho văn bản có độ dài ${text.length}`);
+
+      // Validate input text
+      if (!text || text.trim() === '') {
+        this.logger.error('Văn bản rỗng không thể tạo embedding');
+        throw new Error('Văn bản không được để trống');
+      }
+
+      // Gọi đến Google API
       const response = await axios.post(
-        `${this.huggingfaceUrl}/${this.embeddingModel}`,
-        { inputs: text },
+        `${this.googleApiEndpoint}?key=${this.googleApiKey}`,
+        {
+          content: {
+            parts: [{ text }],
+          },
+        },
         {
           headers: {
             'Content-Type': 'application/json',
-            'Authorization': `Bearer ${this.huggingfaceToken}`,
           },
         },
       );
 
-      // Hugging Face trả về trực tiếp mảng embedding
-      return response.data;
+      // Kiểm tra định dạng response từ Google API
+      if (
+        response.data &&
+        response.data.embedding &&
+        response.data.embedding.values &&
+        Array.isArray(response.data.embedding.values) &&
+        response.data.embedding.values.length > 0
+      ) {
+        // Đảm bảo tất cả các giá trị là số
+        const embeddings = response.data.embedding.values.map((val) => Number(val));
+
+        this.logger.debug(`Đã tạo embedding thành công với ${embeddings.length} chiều`);
+        return embeddings;
+      } else {
+        this.logger.error(`Response không hợp lệ: ${JSON.stringify(response.data)}`);
+        throw new Error('Định dạng phản hồi không hợp lệ từ Google Generative Language API');
+      }
     } catch (error) {
-      this.logger.error(`Error creating embedding with Hugging Face: ${error.message}`);
+      if (error.response) {
+        // Ghi log chi tiết về lỗi HTTP
+        this.logger.error(
+          `Google API trả về lỗi HTTP ${error.response.status}: ${JSON.stringify(
+            error.response.data,
+          )}`,
+        );
+      }
+      this.logger.error(`Lỗi khi tạo embedding với Google API: ${error.message}`);
       throw error;
     }
   }
